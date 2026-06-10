@@ -7,179 +7,47 @@ const {
   ConfigStatusLabels,
   FeatureLevelLabels,
 } = require("../utils/constants");
-
-const getPackageConfigIds = (optionPackages = []) => {
-  const packageConfigIds = new Set();
-  optionPackages.forEach((vp) => {
-    if (vp.optionPackage?.items) {
-      vp.optionPackage.items.forEach((item) => {
-        packageConfigIds.add(item.configItemId);
-      });
-    }
-  });
-  return packageConfigIds;
-};
-
-const calculateVehicleSmartWeight = (vehicleConfigs, optionPackages = []) => {
-  const packageConfigIds = getPackageConfigIds(optionPackages);
-
-  const configWeight = vehicleConfigs.reduce((sum, vc) => {
-    if (packageConfigIds.has(vc.configItemId)) {
-      return sum;
-    }
-    const weight = vc.actualWeight || vc.configItem.typicalWeight;
-    return sum + weight * vc.quantity;
-  }, 0);
-
-  const packageWeight = optionPackages.reduce((sum, vp) => {
-    if (vp.optionPackage?.items) {
-      return (
-        sum +
-        vp.optionPackage.items.reduce((s, item) => {
-          return s + item.configItem.typicalWeight * item.quantity;
-        }, 0)
-      );
-    }
-    return sum;
-  }, 0);
-
-  return configWeight + packageWeight;
-};
-
-const calculateCategoryWeight = (vehicleConfigs, optionPackages = []) => {
-  const byCategory = {};
-  const packageConfigIds = getPackageConfigIds(optionPackages);
-
-  vehicleConfigs.forEach((vc) => {
-    if (packageConfigIds.has(vc.configItemId)) {
-      return;
-    }
-    const category = vc.configItem.category;
-    const weight = (vc.actualWeight || vc.configItem.typicalWeight) * vc.quantity;
-    if (!byCategory[category]) {
-      byCategory[category] = 0;
-    }
-    byCategory[category] += weight;
-  });
-
-  optionPackages.forEach((vp) => {
-    if (vp.optionPackage?.items) {
-      vp.optionPackage.items.forEach((item) => {
-        const category = item.configItem.category;
-        const weight = item.configItem.typicalWeight * item.quantity;
-        if (!byCategory[category]) {
-          byCategory[category] = 0;
-        }
-        byCategory[category] += weight;
-      });
-    }
-  });
-
-  return byCategory;
-};
-
-const calculatePackageWeight = (optionPackages = []) => {
-  return optionPackages.reduce((sum, vp) => {
-    if (vp.optionPackage?.items) {
-      return (
-        sum +
-        vp.optionPackage.items.reduce((s, item) => {
-          return s + item.configItem.typicalWeight * item.quantity;
-        }, 0)
-      );
-    }
-    return sum;
-  }, 0);
-};
-
-const calculateVersionUpgradeSaving = (vehicleConfigs) => {
-  let totalSaving = 0;
-  const upgradeableItems = [];
-
-  vehicleConfigs.forEach((vc) => {
-    const configItem = vc.configItem;
-    if (configItem.versionGroupId && configItem.versions && configItem.versions.length > 0) {
-      const currentVersion = configItem.versions.find(
-        (v) => v.versionCode === configItem.versionCode
-      );
-      const latestVersion =
-        configItem.versions.find((v) => v.isCurrent) ||
-        [...configItem.versions].sort((a, b) => b.versionOrder - a.versionOrder)[0];
-
-      if (
-        currentVersion &&
-        latestVersion &&
-        latestVersion.versionOrder > currentVersion.versionOrder
-      ) {
-        const currentWeight = (vc.actualWeight || currentVersion.weight) * vc.quantity;
-        const newWeight = latestVersion.weight * vc.quantity;
-        const saving = currentWeight - newWeight;
-
-        if (saving > 0) {
-          totalSaving += saving;
-          upgradeableItems.push({
-            configItemId: configItem.id,
-            name: configItem.name,
-            currentVersion: currentVersion.versionCode,
-            latestVersion: latestVersion.versionCode,
-            weightSaving: saving,
-            quantity: vc.quantity,
-          });
-        }
-      }
-    }
-  });
-
-  return { totalSaving, upgradeableItems };
-};
+const {
+  calculateVehicleSmartWeight,
+  calculateCategoryWeight,
+  calculatePackageWeight,
+  calculateVersionUpgradeSaving,
+  computeVehicleWeightMetrics,
+  fetchVehiclesWithConfigs,
+} = require("../services/analyticsService");
 
 const getSmartWeightOverview = async (req, res) => {
   try {
-    const vehicles = await prisma.vehicleModel.findMany({
-      include: {
-        vehicleConfigs: {
-          include: { configItem: { include: { versions: true } } },
-        },
-        optionPackages: {
-          include: {
-            optionPackage: {
-              include: { items: { include: { configItem: true } } },
-            },
-          },
-        },
-      },
-    });
+    const vehicles = await fetchVehiclesWithConfigs();
 
-    const vehicleWeights = vehicles.map((v) => {
-      const smartWeight = calculateVehicleSmartWeight(v.vehicleConfigs, v.optionPackages);
-      const packageWeight = calculatePackageWeight(v.optionPackages);
-      const packageConfigIds = getPackageConfigIds(v.optionPackages);
-      const configWeight = v.vehicleConfigs.reduce((sum, vc) => {
-        if (packageConfigIds.has(vc.configItemId)) {
-          return sum;
-        }
-        const weight = vc.actualWeight || vc.configItem.typicalWeight;
-        return sum + weight * vc.quantity;
-      }, 0);
-      const versionSaving = calculateVersionUpgradeSaving(v.vehicleConfigs);
-
+    const vehicleMetrics = vehicles.map((v) => {
+      const metrics = computeVehicleWeightMetrics(v);
       return {
-        id: v.id,
-        name: v.name,
-        brand: v.brand,
-        grade: v.grade,
-        gradeLabel: VehicleGradeLabels[v.grade],
-        baseWeight: v.baseWeight,
-        smartWeight,
-        configWeight,
-        packageWeight,
-        packageCount: v.optionPackages.length,
-        versionUpgradeSaving: versionSaving.totalSaving,
-        upgradeableConfigCount: versionSaving.upgradeableItems.length,
-        configCount: v.vehicleConfigs.length,
-        isNewModel: v.isNewModel,
+        vehicle: v,
+        ...metrics,
       };
     });
+
+    const vehicleWeights = vehicleMetrics.map(
+      ({ vehicle: v, smartWeight, packageWeight, configWeight, versionSaving }) => {
+        return {
+          id: v.id,
+          name: v.name,
+          brand: v.brand,
+          grade: v.grade,
+          gradeLabel: VehicleGradeLabels[v.grade],
+          baseWeight: v.baseWeight,
+          smartWeight,
+          configWeight,
+          packageWeight,
+          packageCount: v.optionPackages.length,
+          versionUpgradeSaving: versionSaving.totalSaving,
+          upgradeableConfigCount: versionSaving.upgradeableItems.length,
+          configCount: v.vehicleConfigs.length,
+          isNewModel: v.isNewModel,
+        };
+      }
+    );
 
     const allWeights = vehicleWeights.map((v) => v.smartWeight);
     const avgWeight = allWeights.reduce((a, b) => a + b, 0) / allWeights.length;
@@ -194,7 +62,7 @@ const getSmartWeightOverview = async (req, res) => {
       .slice(0, 5);
 
     const byCategory = {};
-    vehicles.forEach((v) => {
+    vehicleMetrics.forEach(({ vehicle: v }) => {
       const catWeights = calculateCategoryWeight(v.vehicleConfigs, v.optionPackages);
       Object.entries(catWeights).forEach(([cat, weight]) => {
         if (!byCategory[cat]) {
@@ -205,17 +73,17 @@ const getSmartWeightOverview = async (req, res) => {
       });
     });
 
-    const totalPackageWeight = vehicles.reduce(
-      (sum, v) => sum + calculatePackageWeight(v.optionPackages),
+    const totalPackageWeight = vehicleMetrics.reduce(
+      (sum, { packageWeight }) => sum + packageWeight,
       0
     );
-    const totalVersionSaving = vehicles.reduce(
-      (sum, v) => sum + calculateVersionUpgradeSaving(v.vehicleConfigs).totalSaving,
+    const totalVersionSaving = vehicleMetrics.reduce(
+      (sum, { versionSaving }) => sum + versionSaving.totalSaving,
       0
     );
     const totalPackages = vehicles.reduce((sum, v) => sum + v.optionPackages.length, 0);
-    const totalUpgradeable = vehicles.reduce(
-      (sum, v) => sum + calculateVersionUpgradeSaving(v.vehicleConfigs).upgradeableItems.length,
+    const totalUpgradeable = vehicleMetrics.reduce(
+      (sum, { versionSaving }) => sum + versionSaving.upgradeableItems.length,
       0
     );
 
@@ -271,21 +139,7 @@ const getGradeAnalysis = async (req, res) => {
     const result = [];
 
     for (const grade of gradeOrder) {
-      const vehicles = await prisma.vehicleModel.findMany({
-        where: { grade },
-        include: {
-          vehicleConfigs: {
-            include: { configItem: { include: { versions: true } } },
-          },
-          optionPackages: {
-            include: {
-              optionPackage: {
-                include: { items: { include: { configItem: true } } },
-              },
-            },
-          },
-        },
-      });
+      const vehicles = await fetchVehiclesWithConfigs({ grade });
 
       if (vehicles.length === 0) continue;
 
@@ -510,20 +364,7 @@ const getHighAdoptionConfigs = async (req, res) => {
 
 const getCategoryWeightAnalysis = async (req, res) => {
   try {
-    const vehicles = await prisma.vehicleModel.findMany({
-      include: {
-        vehicleConfigs: {
-          include: { configItem: { include: { versions: true } } },
-        },
-        optionPackages: {
-          include: {
-            optionPackage: {
-              include: { items: { include: { configItem: true } } },
-            },
-          },
-        },
-      },
-    });
+    const vehicles = await fetchVehiclesWithConfigs();
 
     const categoryVehicleData = {};
     let totalAllVehiclesWeight = 0;
@@ -600,20 +441,7 @@ const getWeightOptimizationSuggestions = async (req, res) => {
   try {
     const { weightThreshold = 2, usageThreshold = false } = req.query;
 
-    const vehicles = await prisma.vehicleModel.findMany({
-      include: {
-        vehicleConfigs: {
-          include: { configItem: { include: { versions: true } } },
-        },
-        optionPackages: {
-          include: {
-            optionPackage: {
-              include: { items: { include: { configItem: true } } },
-            },
-          },
-        },
-      },
-    });
+    const vehicles = await fetchVehiclesWithConfigs();
 
     const totalVehicles = vehicles.length;
     const configAdoptionMap = {};
