@@ -1,0 +1,144 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ConfigItem {
+  id             Int       @id @default(autoincrement())
+  name           String
+  category       String
+  typicalWeight  Float
+  featureLevel   String
+  status         String
+  description    String?
+  popularityRate Float     @default(0)
+  isHighlyAdopted Boolean  @default(false)
+  versionGroupId String?
+  versionCode    String?
+  versionOrder   Int?      @default(0)
+  isLatestVersion Boolean? @default(false)
+  releaseYear    Int?
+  weightSavingFromPrev Float? @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  vehicleConfigs VehicleConfig[]
+  versions       ConfigItemVersion[]
+  optionPackageItems OptionPackageItem[]
+
+  @@index([category])
+  @@index([status])
+  @@index([versionGroupId])
+}
+
+model ConfigItemVersion {
+  id              Int       @id @default(autoincrement())
+  configItemId    Int
+  versionGroupId  String
+  versionCode     String
+  versionName     String
+  versionOrder    Int       @default(0)
+  weight          Float
+  weightSaving    Float     @default(0)
+  releaseYear     Int?
+  isCurrent       Boolean   @default(false)
+  description     String?
+  improvementNotes String?
+  createdAt       DateTime  @default(now())
+
+  configItem ConfigItem @relation(fields: [configItemId], references: [id], onDelete: Cascade)
+
+  @@index([configItemId])
+  @@index([versionGroupId])
+  @@index([versionOrder])
+}
+
+model OptionPackage {
+  id          Int       @id @default(autoincrement())
+  name        String
+  code        String    @unique
+  category    String
+  description String?
+  price       Float?
+  isPopular   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  items     OptionPackageItem[]
+  vehicles  VehicleOptionPackage[]
+
+  @@index([category])
+  @@index([isPopular])
+}
+
+model OptionPackageItem {
+  id              Int @id @default(autoincrement())
+  optionPackageId Int
+  configItemId    Int
+  quantity        Int @default(1)
+  isOptional      Boolean @default(false)
+
+  optionPackage OptionPackage @relation(fields: [optionPackageId], references: [id], onDelete: Cascade)
+  configItem    ConfigItem    @relation(fields: [configItemId], references: [id], onDelete: Cascade)
+
+  @@unique([optionPackageId, configItemId])
+  @@index([optionPackageId])
+  @@index([configItemId])
+}
+
+model VehicleOptionPackage {
+  id               Int      @id @default(autoincrement())
+  vehicleModelId   Int
+  optionPackageId  Int
+  isStandard       Boolean  @default(false)
+  adoptionDate     DateTime?
+  createdAt        DateTime @default(now())
+
+  vehicleModel  VehicleModel  @relation(fields: [vehicleModelId], references: [id], onDelete: Cascade)
+  optionPackage OptionPackage @relation(fields: [optionPackageId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleModelId, optionPackageId])
+  @@index([vehicleModelId])
+  @@index([optionPackageId])
+}
+
+model VehicleModel {
+  id           Int       @id @default(autoincrement())
+  name         String
+  brand        String
+  grade        String
+  modelYear    Int
+  baseWeight   Float
+  description  String?
+  isNewModel   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vehicleConfigs VehicleConfig[]
+  optionPackages VehicleOptionPackage[]
+}
+
+model VehicleConfig {
+  id              Int      @id @default(autoincrement())
+  vehicleModelId  Int
+  configItemId    Int
+  quantity        Int      @default(1)
+  actualWeight    Float?
+  isFrequentlyUsed Boolean @default(true)
+  adoptionDate    DateTime?
+  createdAt       DateTime @default(now())
+
+  vehicleModel VehicleModel @relation(fields: [vehicleModelId], references: [id], onDelete: Cascade)
+  configItem   ConfigItem   @relation(fields: [configItemId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleModelId, configItemId])
+  @@index([vehicleModelId])
+  @@index([configItemId])
+}

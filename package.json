@@ -1,0 +1,54 @@
+{
+  "name": "smartload",
+  "version": "1.0.0",
+  "description": "汽车智能化配置增重管理系统",
+  "main": "src/server.js",
+  "scripts": {
+    "prepare": "husky",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "lint": "eslint \"**/*.js\"",
+    "lint:fix": "eslint \"**/*.js\" --fix",
+    "seed": "node prisma/seed.js",
+    "db:init": "prisma generate && prisma migrate dev && npm run seed",
+    "db:reset": "prisma migrate reset --force && npm run seed",
+    "setup": "npm install && npm run db:init",
+    "test": "node scripts/test_api.js",
+    "prisma:init": "prisma init",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:generate": "prisma generate"
+  },
+  "lint-staged": {
+    "**/*.{js,json,md}": [
+      "prettier --write"
+    ],
+    "**/*.js": [
+      "eslint"
+    ]
+  },
+  "keywords": [
+    "automotive",
+    "smart",
+    "weight",
+    "management"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-prettier": "^5.5.6",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "nodemon": "^3.0.3",
+    "prettier": "^3.8.3",
+    "prisma": "^5.10.0"
+  }
+}
